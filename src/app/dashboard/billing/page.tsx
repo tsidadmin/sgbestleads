@@ -8,6 +8,9 @@ import CancelButton from "@/components/CancelButton";
 
 export const metadata = { title: "Billing" };
 
+// Reads auth cookies via getSessionUser(), so it must render per-request.
+export const dynamic = "force-dynamic";
+
 export default async function BillingPage() {
   const user = (await getSessionUser())!; // layout guards
   const subs = await subscriptionsFor(user.id);
