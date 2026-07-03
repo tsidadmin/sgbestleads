@@ -8,10 +8,12 @@ import CancelButton from "@/components/CancelButton";
 
 export const metadata = { title: "Billing" };
 
-// Reads auth cookies via getSessionUser(), so it must render per-request.
-export const dynamic = "force-dynamic";
-
-export default async function BillingPage() {
+export default async function BillingPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  await searchParams; // consume a request-time API so the route renders dynamically
   const user = (await getSessionUser())!; // layout guards
   const subs = await subscriptionsFor(user.id);
   const stripeOn = stripeEnabled();
