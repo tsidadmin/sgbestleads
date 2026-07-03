@@ -1,0 +1,93 @@
+@import "tailwindcss";
+
+@theme {
+  --color-paper: #faf9f4;
+  --color-card: #ffffff;
+  --color-ink: #141b22;
+  --color-inkdeep: #0d1319;
+  --color-soft: #59636e;
+  --color-line: #e4e0d5;
+  --color-wash: #f1eee5;
+  --color-accent: #e4002b;
+  --color-accent-deep: #b10023;
+  --color-verify: #0f7a46;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "Segoe UI Mono",
+    Consolas, "Liberation Mono", Menlo, monospace;
+}
+
+body {
+  @apply bg-paper font-sans text-ink antialiased;
+}
+
+::selection {
+  background: var(--color-accent);
+  color: #ffffff;
+}
+
+/* Registry-style section eyebrow */
+.eyebrow {
+  @apply font-mono text-[11px] font-semibold uppercase tracking-[0.22em] text-accent;
+}
+
+/* Buttons */
+.btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-[3px] px-5 py-2.5 text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:pointer-events-none disabled:opacity-50;
+}
+.btn-primary {
+  @apply bg-accent text-white hover:bg-accent-deep;
+}
+.btn-dark {
+  @apply bg-ink text-white hover:bg-inkdeep;
+}
+.btn-ghost {
+  @apply border border-line bg-card text-ink hover:border-ink;
+}
+.btn-light {
+  @apply bg-white text-ink hover:bg-paper;
+}
+
+/* Small metadata chips */
+.chip {
+  @apply inline-flex items-center gap-1.5 rounded-[3px] border border-line bg-card px-2 py-0.5 font-mono text-[11px] font-medium uppercase tracking-wider text-soft;
+}
+.code-chip {
+  @apply inline-flex items-center rounded-[3px] bg-ink px-2 py-0.5 font-mono text-[11px] font-bold tracking-wider text-white;
+}
+
+/* Ledger row entrance */
+@keyframes rowIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.row-in {
+  animation: rowIn 0.5s ease-out both;
+}
+
+@keyframes pulseDot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.pulse-dot {
+  animation: pulseDot 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row-in,
+  .pulse-dot {
+    animation: none;
+  }
+}
