@@ -8,12 +8,7 @@ import CancelButton from "@/components/CancelButton";
 
 export const metadata = { title: "Billing" };
 
-export default async function BillingPage({
-  searchParams,
-}: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
-  await searchParams; // consume a request-time API so the route renders dynamically
+export default async function BillingPage() {
   const user = (await getSessionUser())!; // layout guards
   const subs = await subscriptionsFor(user.id);
   const stripeOn = stripeEnabled();
