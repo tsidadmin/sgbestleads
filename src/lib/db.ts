@@ -2,9 +2,15 @@ import { promises as fs } from "fs";
 import path from "path";
 
 /**
- * Lightweight JSON file store for the MVP.
- * Swap for Postgres/Supabase/Prisma in production — every read/write
- * goes through this module, so it is a one-file migration.
+ * JSON document store with two backends:
+ *
+ * - Upstash Redis (REST API, no npm dependency) when
+ *   UPSTASH_REDIS_REST_URL/TOKEN or KV_REST_API_URL/TOKEN are set.
+ *   Required on Vercel — the serverless filesystem is read-only.
+ * - Local JSON file otherwise (dev only).
+ *
+ * Every read/write goes through this module, so swapping backends —
+ * e.g. to Postgres — stays a one-file migration.
  */
 
 export type User = {
@@ -44,12 +50,44 @@ type DB = {
 const DB_PATH = path.join(process.cwd(), "data", "db.json");
 const EMPTY: DB = { users: [], sessions: [], subscriptions: [] };
 
-// Serialise writes so concurrent requests do not clobber each other.
-let queue: Promise<unknown> = Promise.resolve();
+const REDIS_URL =
+  process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
+const REDIS_TOKEN =
+  process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
+const REDIS_KEY = "sgbl:db";
 
-async function load(): Promise<DB> {
+// Atomic compare-and-swap: write only if the blob is unchanged since we
+// read it. An empty ARGV[1] means "key did not exist" (GET returns false).
+const CAS_SCRIPT =
+  "local cur = redis.call('GET', KEYS[1]) " +
+  "if (cur == false and ARGV[1] == '') or cur == ARGV[1] then " +
+  "redis.call('SET', KEYS[1], ARGV[2]) return 1 end return 0";
+
+function redisEnabled(): boolean {
+  return Boolean(REDIS_URL && REDIS_TOKEN);
+}
+
+async function redisCommand(command: (string | number)[]): Promise<unknown> {
+  const res = await fetch(REDIS_URL!, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${REDIS_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(command),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(`Redis request failed with status ${res.status}`);
+  }
+  const data = (await res.json()) as { result?: unknown; error?: string };
+  if (data.error) throw new Error(`Redis error: ${data.error}`);
+  return data.result;
+}
+
+function parse(raw: string | null): DB {
+  if (!raw) return structuredClone(EMPTY);
   try {
-    const raw = await fs.readFile(DB_PATH, "utf8");
     const parsed = JSON.parse(raw) as Partial<DB>;
     return {
       users: parsed.users ?? [],
@@ -61,23 +99,57 @@ async function load(): Promise<DB> {
   }
 }
 
-async function persist(db: DB): Promise<void> {
+async function loadRaw(): Promise<string | null> {
+  if (redisEnabled()) {
+    return (await redisCommand(["GET", REDIS_KEY])) as string | null;
+  }
+  try {
+    return await fs.readFile(DB_PATH, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+async function persistFile(db: DB): Promise<void> {
   await fs.mkdir(path.dirname(DB_PATH), { recursive: true });
   await fs.writeFile(DB_PATH, JSON.stringify(db, null, 2), "utf8");
 }
 
+// Serialise writes within this instance so concurrent requests do not
+// clobber each other. Cross-instance conflicts are handled by the CAS
+// retry loop in `mutate` when Redis is the backend.
+let queue: Promise<unknown> = Promise.resolve();
+
 /** Read-only access. */
 export async function getDB(): Promise<DB> {
-  return load();
+  return parse(await loadRaw());
 }
 
-/** Read–modify–write with a serialised queue. Return a value from `fn` to get it back. */
+/** Read–modify–write. Return a value from `fn` to get it back. */
 export async function mutate<T>(fn: (db: DB) => T | Promise<T>): Promise<T> {
   const run = queue.then(async () => {
-    const db = await load();
-    const result = await fn(db);
-    await persist(db);
-    return result;
+    if (!redisEnabled()) {
+      const db = parse(await loadRaw());
+      const result = await fn(db);
+      await persistFile(db);
+      return result;
+    }
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const raw = await loadRaw();
+      const db = parse(raw);
+      const result = await fn(db);
+      const swapped = await redisCommand([
+        "EVAL",
+        CAS_SCRIPT,
+        1,
+        REDIS_KEY,
+        raw ?? "",
+        JSON.stringify(db),
+      ]);
+      if (swapped === 1) return result;
+    }
+    throw new Error("Database write conflict — please retry.");
   });
   queue = run.catch(() => undefined);
   return run;
